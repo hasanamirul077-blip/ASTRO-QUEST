@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ASTRO QUEST Penjelajah Antariksa 3D</title>
+  <meta name="description" content="Jelajahi keajaiban alam semesta secara interaktif dalam tampilan 3D. Uji pengetahuanmu dengan kuis antariksa yang seru!">
+  <link rel="stylesheet" href="misi.css">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,1,0" />
+  <link rel="icon" type="image/png" href="images/astronut.png">
+  <style>
+    /* Fail-safe positioning for critical UI panels */
+    #kontrol-panel { position: fixed !important; top: 25px !important; right: 25px !important; z-index: 1000 !important; }
+    #info-planet { position: fixed !important; left: 30px !important; top: 50% !important; transform: translateY(-50%) !important; z-index: 1000 !important; }
+    @media (max-width: 900px) {
+      #kontrol-panel { top: auto !important; bottom: 20px !important; right: 15px !important; left: 15px !important; width: auto !important; }
+      #info-planet { left: 10px !important; right: 10px !important; top: auto !important; bottom: 20px !important; width: auto !important; transform: none !important; }
+    }
+    @media (max-width: 480px) {
+      #kontrol-panel { top: auto !important; bottom: 10px !important; right: 10px !important; left: 10px !important; width: auto !important; }
+      #info-planet { left: 8px !important; right: 8px !important; top: auto !important; bottom: 10px !important; width: auto !important; transform: none !important; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ===== LOADING SCREEN ===== -->
+<div id="loading-screen">
+  <div class="loading-bg"></div>
+  <div class="loading-content">
+    <div class="loading-logo">
+      <img src="images/astronut.png" alt="Astro Quest Logo">
+      <h1>ASTRO QUEST</h1>
+    </div>
+    <div class="loading-bar-container">
+      <div class="loading-bar-fill" id="loading-bar-fill"></div>
+    </div>
+    <div class="loading-status">Menginisialisasi Alam Semesta... <span id="loading-percent">0%</span></div>
+    <div class="loading-action" id="loading-action-container" style="display: none; margin-top: 25px;">
+      <button class="btn-mulai-loading" id="btn-mulai-loading" onclick="selesaiLoading()">
+        <span class="material-symbols-rounded">rocket_launch</span> MAINKAN SEKARANG
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== LANDING PAGE ===== -->
+<div id="landing-page">
+  <div class="lp-container">
+    <div class="lp-left">
+      <h1 class="lp-title">ASTRO<br>QUEST</h1>
+      <p class="lp-desc">Jelajahi alam semesta dalam 3D dan uji pengetahuan antariksamu melalui misi kuis yang menantang.</p>
+    </div>
+    <div class="lp-right">
+      <div class="lp-menu">
+        <button class="lp-btn lp-btn-primary" onclick="mulaiJelajah()">
+          <span class="material-symbols-rounded">explore</span> JELAJAH AR
+        </button>
+        <button class="lp-btn lp-btn-secondary" onclick="mulaiMisi()">
+          <span class="material-symbols-rounded">quiz</span> MISI QUIS
+        </button>
+        <button class="lp-btn lp-btn-secondary" onclick="bukaKoleksi()">
+          <span class="material-symbols-rounded">inventory_2</span> KOLEKSI
+        </button>
+        <button class="lp-btn lp-btn-secondary" onclick="bukaPencapaian()">
+          <span class="material-symbols-rounded">emoji_events</span> PENCAPAIAN
+        </button>
+        <button class="lp-btn lp-btn-secondary" onclick="bukaPengaturan()">
+          <span class="material-symbols-rounded">settings</span> PENGATURAN
+        </button>
+      </div>
+
+      <!-- ===== AUTH SECTION ===== -->
+      <div id="auth-section" class="auth-card">
+        <div id="auth-guest">
+          <button class="google-btn" onclick="loginGoogle()">
+            <img src="https://developers.google.com/static/identity/images/g-logo.png" alt="Google">
+            <span>Sign in with Google</span>
+          </button>
+        </div>
+        <div id="auth-user">
+          <div class="user-profile-mini">
+            <div class="profile-pic-container">
+              <img id="user-photo" src="" alt="Profile">
+            </div>
+            <div class="user-info-mini">
+              <span id="user-name">User Name</span>
+              <span class="user-status">Online</span>
+            </div>
+            <button class="logout-btn-mini" onclick="logout()" title="Logout">
+              <span class="material-symbols-rounded">logout</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== AUDIO ELEMENTS ===== -->
+<audio id="audio-backsound" loop src="./sound/backsound.mp3"></audio>
+<audio id="audio-jelajah" loop src="./sound/Jelajah.mp3"></audio>
+<audio id="audio-quiz" loop src="./sound/Quiz.mp3"></audio>
+<audio id="audio-click" src="./sound/click.mp3"></audio>
+
+<!-- ===== HEADER ===== -->
+<div id="header">
+  <button id="btn-back-to-menu" onclick="kembaliKeMenu()" title="Kembali ke Menu Utama">
+    <span class="material-symbols-rounded">arrow_back</span>
+  </button>
+  <h1>Simulasi 3D & Info Planet</h1>
+</div>
+
+<!-- ===== KONTROL SIMULASI (kanan atas) ===== -->
+<div id="kontrol-panel">
+  <div class="kontrol-toggle" id="kontrol-toggle-btn">
+    <div class="kontrol-label-kiri">
+      <span class="material-symbols-rounded">settings</span>
+      <span>Kontrol Simulasi</span>
+    </div>
+    <div class="kontrol-right">
+      <div class="kontrol-status">
+        <div class="status-dot" id="status-dot"></div>
+      </div>
+      <span class="kontrol-arrow" id="kontrol-arrow">▼</span>
+    </div>
+  </div>
+
+  <div class="kontrol-body" id="kontrol-body">
+    <div class="slider-item">
+      <div class="slider-header">
+        <label for="slider-orbit" class="slider-label"><span class="material-symbols-rounded">language</span> Kecepatan Orbit</label>
+        <span class="slider-value-pill" id="val-orbit">1.0×</span>
+      </div>
+      <div class="slider-track">
+        <div class="slider-fill" id="fill-orbit" style="width:10%"></div>
+        <input type="range" class="sim-slider" id="slider-orbit" title="Atur Kecepatan Orbit" min="0" max="10" step="0.1" value="1">
+      </div>
+    </div>
+    <div class="slider-item">
+      <div class="slider-header">
+        <label for="slider-rotasi" class="slider-label"><span class="material-symbols-rounded">sync</span> Kecepatan Rotasi</label>
+        <span class="slider-value-pill" id="val-rotasi">1.0×</span>
+      </div>
+      <div class="slider-track">
+        <div class="slider-fill" id="fill-rotasi" style="width:10%"></div>
+        <input type="range" class="sim-slider" id="slider-rotasi" title="Atur Kecepatan Rotasi" min="0" max="10" step="0.1" value="1">
+      </div>
+    </div>
+    <div class="slider-item">
+      <div class="slider-header">
+        <label for="slider-matahari" class="slider-label"><span class="material-symbols-rounded">light_mode</span> Cahaya Matahari</label>
+        <span class="slider-value-pill" id="val-matahari">1.9×</span>
+      </div>
+      <div class="slider-track">
+        <div class="slider-fill" id="fill-matahari" style="width:10%"></div>
+        <input type="range" class="sim-slider" id="slider-matahari" title="Atur Intensitas Cahaya Matahari" min="0" max="10" step="0.1" value="1.9">
+      </div>
+    </div>
+    <div class="kontrol-actions">
+      <button class="btn-aksi pause-orbit" id="btn-pause-orbit"><span class="material-symbols-rounded">pause_circle</span> Jeda Orbit</button>
+      <button class="btn-aksi reset" id="btn-reset"><span class="material-symbols-rounded">restart_alt</span> Reset Semua</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== CAMERA AR VIDEO FEED (Hidden) ===== -->
+<video id="camera-ar-video" autoplay playsinline muted style="display:none;"></video>
+
+<!-- ===== BUTTON CAMERA AR ===== -->
+<div id="btn-camera-ar-wrapper">
+  <button id="btn-camera-ar" onclick="aktifkanCameraAR()" title="Aktifkan Camera AR">
+    <span class="material-symbols-rounded">photo_camera</span>
+    <span class="btn-camera-ar-label">Camera AR</span>
+  </button>
+</div>
+
+<!-- ===== BUTTON KEMBALI KE JELAJAH AR ===== -->
+<button id="btn-kembali-jelajah" onclick="nonaktifkanCameraAR()" title="Kembali ke Jelajah AR">
+  <span class="material-symbols-rounded">arrow_back</span>
+  <span>Kembali ke Jelajah AR</span>
+</button>
+
+<!-- ===== TRANSITION OVERLAY CAMERA AR ===== -->
+<div id="camera-ar-overlay"></div>
+
+<!-- ===== INFO PLANET ===== -->
+<div id="info-planet">
+  <div class="info-card">
+    <div class="info-header">
+      <div class="info-header-bg" id="info-header-bg"></div>
+      <div class="info-header-top">
+        <span class="material-symbols-rounded" id="info-emoji" style="font-size: 32px;">public</span>
+        <button class="info-tutup" onclick="tutupInfo()" title="Tutup">✕</button>
+      </div>
+      <div class="info-planet-nama" id="info-nama">Planet</div>
+      <div class="info-badge-row">
+        <span class="info-badge badge-tipe" id="info-tipe">—</span>
+        <span class="info-badge badge-nomor" id="info-nomor">—</span>
+      </div>
+    </div>
+    <div class="info-stats">
+      <div class="stat-item"><div class="stat-value" id="stat-radius">—</div><div class="stat-label">Jari-jari</div></div>
+      <div class="stat-item"><div class="stat-value" id="stat-kemiringan">—</div><div class="stat-label">Kemiringan</div></div>
+      <div class="stat-item"><div class="stat-value" id="stat-rotasi">—</div><div class="stat-label">Rotasi</div></div>
+      <div class="stat-item"><div class="stat-value" id="stat-orbit">—</div><div class="stat-label">Orbit</div></div>
+      <div class="stat-item"><div class="stat-value" id="stat-jarak">—</div><div class="stat-label">Jarak Matahari</div></div>
+      <div class="stat-item"><div class="stat-value" id="info-bulan">—</div><div class="stat-label">Satelit Alami</div></div>
+    </div>
+    <div class="info-desc">
+      <p class="info-desc-text" id="info-desc">—</p>
+    </div>
+  </div>
+</div>
+
+<!-- ===== HINT BAR ===== -->
+<div id="hint-bar">
+  <div class="hint-item"><span class="material-symbols-rounded hint-icon">ads_click</span><span>Klik planet</span></div>
+  <div class="hint-item"><span class="material-symbols-rounded hint-icon">navigation</span><span>Geser</span></div>
+  <div class="hint-item"><span class="material-symbols-rounded hint-icon">zoom_in</span><span>Scroll</span></div>
+</div>
+
+<!-- ===== MISI MODE CONTAINER ===== -->
+<div id="misi-container"></div>
+
+<!-- ===== MODAL KOLEKSI (INTERAKTIF) ===== -->
+<div id="modal-koleksi" class="modal-overlay">
+  <div class="modal-content">
+    <div class="modal-header">
+      <div class="modal-header-left">
+        <span class="material-symbols-rounded modal-icon-koleksi">inventory_2</span>
+        <h2 class="modal-title-koleksi">KOLEKSI PLANET</h2>
+      </div>
+      <button class="modal-close" onclick="tutupModal('modal-koleksi')">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="collection-list-wrapper">
+        <div class="achievement-card">
+          <div class="user-info">
+            <div class="user-name">Guest Account</div>
+            <div class="user-tier">Solar Explorer</div>
+          </div>
+        </div>
+        <div class="collection-grid" id="collection-items">
+          <!-- Populated via JS -->
+        </div>
+      </div>
+      <div id="collection-preview" style="flex: 1.5; background: rgba(0,0,0,0.3); border-radius: 20px; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; border: 1px solid rgba(255,255,255,0.1);">
+        <div id="planet-canvas-container" style="width: 100%; height: 60%;"></div>
+        <div id="planet-insight" style="padding: 20px; text-align: center;">
+          <h3 id="preview-name" style="margin: 0; color: #fff; font-family: 'Orbitron';">Pilih Planet</h3>
+          <p id="preview-desc" style="font-size: 0.85rem; color: rgba(255,255,255,0.6); margin-top: 10px;">Klik salah satu koleksi untuk melihat detail 3D.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MODAL PENCAPAIAN ===== -->
+<div id="modal-pencapaian" class="modal-overlay">
+  <div class="modal-content">
+    <div class="modal-header">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <span class="material-symbols-rounded" style="color:#fbbf24;">emoji_events</span>
+        <h2 style="margin:0;font-family:'Orbitron',sans-serif;font-size:1.1rem;">PENCAPAIAN</h2>
+      </div>
+      <button class="modal-close" onclick="tutupModal('modal-pencapaian')">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="achievement-list" id="achievement-list"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MODAL PENGATURAN ===== -->
+<div id="modal-pengaturan" class="modal-overlay">
+  <div class="modal-content">
+    <div class="modal-header">
+      <div class="modal-header-left">
+        <span class="material-symbols-rounded modal-icon-koleksi">settings</span>
+        <h2 class="modal-title-koleksi">PENGATURAN</h2>
+      </div>
+      <button class="modal-close" onclick="tutupModal('modal-pengaturan')">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="setting-section">
+        <div class="section-title">PROFIL</div>
+        <div class="profile-edit">
+          <div class="user-avatar-placeholder" id="profile-pic">G</div>
+          <div>
+            <div class="guest-name" id="display-name-text">Guest Account</div>
+            <button class="btn-small" id="btn-login-google" onclick="loginGoogle()">LOGIN GOOGLE</button>
+            <button class="btn-small" id="btn-edit-profile" onclick="toggleEditProfile()" style="display:none; margin-top:5px;">EDIT PROFIL</button>
+          </div>
+        </div>
+        <!-- Formulir Edit Profil (Awalnya Sembunyi) -->
+        <div id="edit-profile-form" style="display:none; margin-top: 15px; background: rgba(255,255,255,0.05); padding: 15px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.1);">
+          <div style="margin-bottom: 10px;">
+            <label style="font-size: 0.8rem; color: rgba(255,255,255,0.6); display: block; margin-bottom: 5px;">Nama Pengguna</label>
+            <input type="text" id="input-edit-name" style="width: 100%; padding: 8px; border-radius: 5px; border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.5); color: white; outline: none;">
+          </div>
+          <div style="margin-bottom: 15px;">
+            <label style="font-size: 0.8rem; color: rgba(255,255,255,0.6); display: block; margin-bottom: 5px;">Foto Profil (Upload File)</label>
+            <input type="file" id="input-edit-photo" accept="image/*" style="width: 100%; font-size: 0.8rem; color: white;">
+          </div>
+          <div style="display: flex; gap: 10px;">
+            <button class="btn-small" onclick="simpanProfil()" style="background: #3b82f6;">SIMPAN</button>
+            <button class="btn-small" onclick="toggleEditProfile()" style="background: rgba(255,255,255,0.1);">BATAL</button>
+          </div>
+          <div id="edit-profile-status" style="font-size: 0.8rem; margin-top: 10px; color: #fbbf24;"></div>
+        </div>
+      </div>
+      <div class="setting-section">
+        <div class="section-title">AUDIO</div>
+        <div class="volume-control-group">
+          <div class="volume-header">
+            <label for="vol-back">Backsound</label>
+            <span id="label-vol-back">50%</span>
+          </div>
+          <input type="range" id="vol-back" title="Volume Backsound" class="volume-slider" min="0" max="1" step="0.01" value="0.5" oninput="updateVolume('back')">
+        </div>
+        <div class="volume-control-group">
+          <div class="volume-header">
+            <label for="vol-click">Click Sound</label>
+            <span id="label-vol-click">70%</span>
+          </div>
+          <input type="range" id="vol-click" title="Volume Click Sound" class="volume-slider" min="0" max="1" step="0.01" value="0.7" oninput="updateVolume('click')">
+        </div>
+      </div>
+      <div class="app-info-footer">
+        <div class="version-text">Versi 2.0.4 | &copy; 2026 Solar System 3D</div>
+        <button class="logout-full-btn" onclick="logout(); location.reload();">LOGOUT</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="./script.js"></script>
+<script type="module" src="./misi.js"></script>
+</body>
+</html>
