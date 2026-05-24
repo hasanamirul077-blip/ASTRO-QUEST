@@ -150,6 +150,7 @@ toggleBtn.addEventListener('click', () => {
   const terbuka = kontrolBody.classList.toggle('terbuka');
   kontrolArrow.classList.toggle('terbuka', terbuka);
   toggleBtn.classList.toggle('aktif', terbuka);
+  document.body.classList.toggle('kontrol-terbuka', terbuka);
 });
 
 // Keterangan dinamis untuk setiap slider
