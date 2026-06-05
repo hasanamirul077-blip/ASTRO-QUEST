@@ -964,6 +964,67 @@ function animate() {
     }
   }
 
+  // ****** HAND TRACKING ACTIONS ******
+  if (isHandActive || Math.abs(handVelocity.x) > 0.0001 || Math.abs(handVelocity.y) > 0.0001) {
+    const rotateSpeed = 6.0; 
+    const panSpeed = 35.0;    
+    const zoomSpeed = 120.0;  
+
+    // Hentikan sepenuhnya jika sangat kecil (mencegah drift)
+    if (Math.abs(handVelocity.x) < 0.0001) handVelocity.x = 0;
+    if (Math.abs(handVelocity.y) < 0.0001) handVelocity.y = 0;
+
+    const isMoving = handVelocity.x !== 0 || handVelocity.y !== 0;
+
+    if (isHandActive) {
+      switch (handCurrentGesture) {
+        case 'open_palm':
+          if (isMoving) {
+            const angleX = handVelocity.x * rotateSpeed;
+            const angleY = handVelocity.y * rotateSpeed;
+            
+            camera.position.sub(controls.target);
+            camera.position.applyAxisAngle(new THREE.Vector3(0, 1, 0), angleX);
+            
+            const rightAxis = new THREE.Vector3().crossVectors(camera.up, camera.position).normalize();
+            camera.position.applyAxisAngle(rightAxis, angleY);
+            
+            camera.position.add(controls.target);
+            camera.lookAt(controls.target);
+          }
+          break;
+        case 'fist':
+          if (isMoving) {
+            const dir = new THREE.Vector3().subVectors(camera.position, controls.target);
+            const right = new THREE.Vector3().crossVectors(camera.up, dir).normalize();
+            const up = camera.up.clone().normalize();
+            
+            const moveX = right.multiplyScalar(-handVelocity.x * panSpeed);
+            const moveY = up.multiplyScalar(-handVelocity.y * panSpeed);
+            
+            controls.target.add(moveX).add(moveY);
+            camera.position.add(moveX).add(moveY);
+          }
+          break;
+        case 'pinch':
+          if (handVelocity.y !== 0) {
+            const zoomAmount = handVelocity.y * zoomSpeed;
+            const direction = new THREE.Vector3().subVectors(camera.position, controls.target).normalize();
+            const currentDist = camera.position.distanceTo(controls.target);
+            
+            const newDist = Math.max(5, Math.min(1000, currentDist + zoomAmount));
+            camera.position.copy(controls.target).add(direction.multiplyScalar(newDist));
+          }
+          break;
+      }
+    }
+    
+    // Terapkan Efek Momentum (Friction / Gesekan)
+    // 0.70 memberikan efek lebih berat dan cepat berhenti
+    handVelocity.x *= 0.70;
+    handVelocity.y *= 0.70;
+  }
+
   controls.update();
 
   // Skip main 3D render when a non-koleksi modal is open (to save GPU)
@@ -1064,6 +1125,9 @@ function mulaiJelajah() {
     
     if (window.playBGM) window.playBGM('jelajah');
 
+    // Aktifkan hand tracking secara otomatis di latar belakang
+    aktifkanHandTrackingLatarBelakang();
+
     setTimeout(() => {
       landingPage.style.display = 'none';
     }, 900);
@@ -1079,6 +1143,10 @@ function kembaliKeMenu() {
     if (isCameraARMode) {
       nonaktifkanCameraARInstant();
     }
+    
+    // Matikan Hand Tracking dan Stream Latar Belakang
+    nonaktifkanHandTrackingLatarBelakang();
+
     // Fully stop rendering and hide canvas
     isSimulationRunning = false;
     if (_rafId) { cancelAnimationFrame(_rafId); _rafId = null; }
@@ -1608,73 +1676,259 @@ onAuthStateChanged(auth, async (user) => {
 // EXPOSE ALL FUNCTIONS TO GLOBAL SCOPE (at end, after all defs)
 // ============================================================
 // ============================================================
-// CAMERA AR SYSTEM
+// CAMERA AR SYSTEM & HAND TRACKING
 // ============================================================
 let isCameraARMode = false;
 let cameraStream = null;
+
+// Variabel Global Hand Tracking
+let arHandsInstance = null;
+let fpEstimator = null;
+let isHandsProcessing = false;
+let isHandActive = false;
+let handCurrentGesture = 'none';
+let handVelocity = { x: 0, y: 0 };
+let handPrevPos = { x: 0, y: 0 };
+let handPinchDistance = 0;
+let handCanvas = null;
+let handCtx = null;
+
+function initHandTracking() {
+  if (arHandsInstance) return;
+  if (!window.Hands || !window.fp) {
+    console.warn("MediaPipe atau Fingerpose belum termuat.");
+    return;
+  }
+
+  // Override window.alert untuk mencegah popup native yang mengganggu dari MediaPipe
+  // karena Brave Browser / Fingerprinting Protection memblokir WebGL.
+  if (!window._originalAlertSaved) {
+    window._originalAlertSaved = true;
+    const originalAlert = window.alert;
+    window.alert = function(msg) {
+      if (typeof msg === 'string' && msg.includes("Failed to create WebGL canvas context")) {
+        console.error("MediaPipe WebGL Error:", msg);
+        originalAlert("Browser memblokir fitur Hand Tracking AR (Kemungkinan karena Brave Shields atau ekstensi AdBlocker). Silakan MATIKAN Brave Shields (ikon Singa di address bar) atau gunakan Google Chrome.");
+        
+        // Hentikan proses hand tracking agar tidak alert terus menerus
+        if (arHandsInstance) {
+          isHandTrackingActive = false;
+        }
+      } else {
+        originalAlert(msg);
+      }
+    };
+  }
+
+  try {
+    arHandsInstance = new window.Hands({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    });
+    
+    arHandsInstance.setOptions({
+      maxNumHands: 1,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.7,
+      minTrackingConfidence: 0.7
+    });
+
+    const OpenPalmGesture = new window.fp.GestureDescription('open_palm');
+    for (const finger of [window.fp.Finger.Thumb, window.fp.Finger.Index, window.fp.Finger.Middle, window.fp.Finger.Ring, window.fp.Finger.Pinky]) {
+      OpenPalmGesture.addCurl(finger, window.fp.FingerCurl.NoCurl, 1.0);
+      OpenPalmGesture.addCurl(finger, window.fp.FingerCurl.HalfCurl, 0.5); // Toleransi sedikit menekuk
+    }
+    
+    const FistGesture = new window.fp.GestureDescription('fist');
+    for (const finger of [window.fp.Finger.Thumb, window.fp.Finger.Index, window.fp.Finger.Middle, window.fp.Finger.Ring, window.fp.Finger.Pinky]) {
+      FistGesture.addCurl(finger, window.fp.FingerCurl.FullCurl, 1.0);
+      FistGesture.addCurl(finger, window.fp.FingerCurl.HalfCurl, 0.8); // Toleransi genggaman kurang rapat
+    }
+    FistGesture.addCurl(window.fp.Finger.Thumb, window.fp.FingerCurl.HalfCurl, 1.0);
+    FistGesture.addCurl(window.fp.Finger.Thumb, window.fp.FingerCurl.NoCurl, 0.5);
+
+    fpEstimator = new window.fp.GestureEstimator([OpenPalmGesture, FistGesture]);
+
+    arHandsInstance.onResults((results) => {
+      isHandsProcessing = false;
+      
+      if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+        isHandActive = true;
+        const landmarks = results.multiHandLandmarks[0];
+        
+        const thumbTip = landmarks[4];
+        const indexTip = landmarks[8];
+        const distance = Math.sqrt(
+          Math.pow(thumbTip.x - indexTip.x, 2) +
+          Math.pow(thumbTip.y - indexTip.y, 2) +
+          Math.pow(thumbTip.z - indexTip.z, 2)
+        );
+
+        const fpLandmarks = landmarks.map((lm) => [lm.x, lm.y, lm.z]);
+        // Menurunkan batas minimal skor keyakinan dari 8.0 menjadi 6.5 agar lebih mudah terdeteksi
+        const estimatedGestures = fpEstimator.estimate(fpLandmarks, 6.5);
+        
+        let detectedGesture = 'none';
+        // Memperbesar jarak maksimal cubit dari 0.05 ke 0.10 agar jauh lebih mudah mendeteksi Pinch
+        if (distance < 0.10) {
+          detectedGesture = 'pinch';
+        } else if (estimatedGestures.gestures.length > 0) {
+          const bestGesture = estimatedGestures.gestures.reduce((p, c) => p.score > c.score ? p : c);
+          detectedGesture = bestGesture.name;
+        }
+        
+        handCurrentGesture = detectedGesture;
+        handPinchDistance = distance;
+        
+        const center = landmarks[9];
+        const prevX = handPrevPos.x;
+        const prevY = handPrevPos.y;
+
+        if (prevX === 0 && prevY === 0) {
+          handPrevPos.x = center.x;
+          handPrevPos.y = center.y;
+        } else {
+          // Low-pass filter (0.3) untuk menghaluskan noise dari AI MediaPipe
+          const smoothX = prevX + (center.x - prevX) * 0.3;
+          const smoothY = prevY + (center.y - prevY) * 0.3;
+          
+          // Tambahkan pergerakan ke kecepatan (Velocity)
+          handVelocity.x += -(smoothX - prevX);
+          handVelocity.y += (smoothY - prevY);
+          
+          handPrevPos.x = smoothX;
+          handPrevPos.y = smoothY;
+        }
+      } else {
+        isHandActive = false;
+        handCurrentGesture = 'none';
+        // Saat tangan hilang, kurangi kecepatan drastis agar berhenti dengan halus
+        handVelocity.x *= 0.5;
+        handVelocity.y *= 0.5;
+        handPrevPos = { x: 0, y: 0 };
+      }
+    });
+  } catch (err) {
+    console.error("Error inisialisasi hand tracking:", err);
+  }
+}
+
+let isHandTrackingActive = false;
+
+async function aktifkanHandTrackingLatarBelakang() {
+  if (isHandTrackingActive) return;
+  const video = document.getElementById('camera-ar-video');
+  try {
+    if (!cameraStream) {
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      const constraints = {
+        video: {
+          facingMode: isMobile ? { ideal: 'environment' } : 'user',
+          width: { ideal: 1920 },
+          height: { ideal: 1080 }
+        },
+        audio: false
+      };
+      cameraStream = await navigator.mediaDevices.getUserMedia(constraints);
+      video.srcObject = cameraStream;
+      await video.play();
+    }
+    
+    isHandTrackingActive = true;
+    try {
+      initHandTracking();
+      processHandTrackingFrame();
+    } catch (err) {
+      console.error("Gagal menjalankan hand tracking di latar belakang:", err);
+    }
+  } catch (err) {
+    console.error('Kamera gagal diakses untuk hand tracking:', err);
+  }
+}
+
+function nonaktifkanHandTrackingLatarBelakang() {
+  isHandTrackingActive = false;
+  isHandActive = false;
+  const video = document.getElementById('camera-ar-video');
+  if (cameraStream) {
+    cameraStream.getTracks().forEach(track => track.stop());
+    cameraStream = null;
+  }
+  if (video) video.srcObject = null;
+}
+
+function processHandTrackingFrame() {
+  if (!isHandTrackingActive) return;
+  const video = document.getElementById('camera-ar-video');
+  if (video && video.readyState >= 2 && video.videoWidth > 0 && arHandsInstance && !isHandsProcessing) {
+    
+    if (!handCanvas) {
+      handCanvas = document.createElement('canvas');
+      handCtx = handCanvas.getContext('2d', { willReadFrequently: true });
+    }
+    if (handCanvas.width !== video.videoWidth || handCanvas.height !== video.videoHeight) {
+      handCanvas.width = video.videoWidth;
+      handCanvas.height = video.videoHeight;
+    }
+    
+    try {
+      handCtx.drawImage(video, 0, 0, handCanvas.width, handCanvas.height);
+      isHandsProcessing = true;
+      arHandsInstance.send({ image: handCanvas }).catch(err => {
+        console.error("MediaPipe Process Error:", err);
+      }).finally(() => {
+        isHandsProcessing = false;
+      });
+    } catch (e) {
+      console.error("Canvas draw error:", e);
+      isHandsProcessing = false;
+    }
+  }
+  
+  if (isHandTrackingActive) {
+    requestAnimationFrame(processHandTrackingFrame);
+  }
+}
 
 async function aktifkanCameraAR() {
   // Prevent double activation
   if (isCameraARMode) return;
 
   const overlay = document.getElementById('camera-ar-overlay');
-  const video = document.getElementById('camera-ar-video');
-
-  try {
-    // Determine camera constraints: rear camera for mobile, default for desktop
-    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    const constraints = {
-      video: {
-        facingMode: isMobile ? { ideal: 'environment' } : 'user',
-        width: { ideal: 1920 },
-        height: { ideal: 1080 }
-      },
-      audio: false
-    };
-
-    // Request camera access
-    cameraStream = await navigator.mediaDevices.getUserMedia(constraints);
-    video.srcObject = cameraStream;
-    await video.play();
-
-    // Smooth transition: fade overlay in
-    overlay.classList.add('aktif');
-
-    setTimeout(() => {
-      // Switch Three.js background to transparent
-      scene.background = null;
-      renderer.setClearColor(0x000000, 0); // fully transparent
-
-      // Mark body as camera AR active (shows video, hides camera AR btn, shows back btn)
-      document.body.classList.add('camera-ar-aktif');
-      isCameraARMode = true;
-
-      // Fade overlay out
-      setTimeout(() => {
-        overlay.classList.remove('aktif');
-      }, 100);
-    }, 600);
-
-  } catch (err) {
-    console.error('Camera AR Error:', err);
-    // Show user-friendly error
-    let msg = 'Tidak dapat mengakses kamera.';
-    if (err.name === 'NotAllowedError') {
-      msg = 'Izin kamera ditolak. Silakan izinkan akses kamera di pengaturan browser Anda.';
-    } else if (err.name === 'NotFoundError') {
-      msg = 'Kamera tidak ditemukan pada perangkat ini.';
-    } else if (err.name === 'NotReadableError') {
-      msg = 'Kamera sedang digunakan oleh aplikasi lain.';
-    }
-    alert(msg);
+  
+  // Jika karena suatu alasan stream belum ada (misal diblock), coba panggil ulang
+  if (!cameraStream) {
+    await aktifkanHandTrackingLatarBelakang();
   }
+  
+  // Jika tetap gagal, berarti memang tidak bisa (ditolak akses)
+  if (!cameraStream) {
+    alert("Tidak dapat mengakses kamera. Pastikan Anda telah memberikan izin.");
+    return;
+  }
+
+  // Smooth transition: fade overlay in
+  overlay.classList.add('aktif');
+
+  setTimeout(() => {
+    // Switch Three.js background to transparent
+    scene.background = null;
+    renderer.setClearColor(0x000000, 0); // fully transparent
+
+    // Mark body as camera AR active (shows video, hides camera AR btn, shows back btn)
+    document.body.classList.add('camera-ar-aktif');
+    isCameraARMode = true;
+
+    // Fade overlay out
+    setTimeout(() => {
+      overlay.classList.remove('aktif');
+    }, 100);
+  }, 600);
 }
 
 function nonaktifkanCameraAR() {
   if (!isCameraARMode) return;
 
   const overlay = document.getElementById('camera-ar-overlay');
-  const video = document.getElementById('camera-ar-video');
 
   // Smooth transition: fade overlay in
   overlay.classList.add('aktif');
@@ -1683,13 +1937,6 @@ function nonaktifkanCameraAR() {
     // Restore space background
     scene.background = originalSpaceBackground;
     renderer.setClearColor(0x000000, 1); // opaque again
-
-    // Stop camera stream
-    if (cameraStream) {
-      cameraStream.getTracks().forEach(track => track.stop());
-      cameraStream = null;
-    }
-    video.srcObject = null;
 
     // Remove camera AR active state
     document.body.classList.remove('camera-ar-aktif');
@@ -1700,25 +1947,21 @@ function nonaktifkanCameraAR() {
       overlay.classList.remove('aktif');
     }, 100);
   }, 600);
+  
+  // Kamera (cameraStream) TETAP DIBIARKAN MENYALA agar hand tracking berjalan
 }
 
 // Instant version (no transition) — used when going back to menu
 function nonaktifkanCameraARInstant() {
   if (!isCameraARMode) return;
 
-  const video = document.getElementById('camera-ar-video');
-
   scene.background = originalSpaceBackground;
   renderer.setClearColor(0x000000, 1);
 
-  if (cameraStream) {
-    cameraStream.getTracks().forEach(track => track.stop());
-    cameraStream = null;
-  }
-  video.srcObject = null;
-
   document.body.classList.remove('camera-ar-aktif');
   isCameraARMode = false;
+  
+  // Kamera (cameraStream) TETAP DIBIARKAN MENYALA (akan dimatikan oleh kembaliKeMenu)
 }
 
 window.mulaiJelajah = mulaiJelajah;
