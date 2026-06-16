@@ -12,10 +12,10 @@ if not exist ".git" (
     echo [INFO] Inisialisasi Git baru...
     git init
     git branch -M main
-    git remote add origin https://github.com/hasanamirul/Solar-Update.git.git
+    git remote add origin https://github.com/hasanamirul/Solar-System.git.git
 ) else (
     echo [INFO] Mengatur ulang Remote URL dan Branch...
-    git remote set-url origin https://github.com/hasanamirul/Solar-Update.git
+    git remote set-url origin https://github.com/hasanamirul/Solar-System.git
     git branch -M main
 )
 
